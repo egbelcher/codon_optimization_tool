@@ -120,6 +120,9 @@ class StreamlitApp:
                     0.0, 1.0, 0.70, 0.05,
                     key=f"gc_max_{i}",
                 )
+                if gc_min > gc_max:
+                    st.sidebar.warning("Min GC% should not exceed Max GC%.")
+                    gc_min, gc_max = gc_max, gc_min
 
             variant_configs.append(
                 VariantConfig(
