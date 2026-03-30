@@ -100,7 +100,7 @@ class StreamlitApp:
             selected_sites = st.sidebar.multiselect(
                 "Restriction Enzymes",
                 options=available_sites,
-                default=["EcoRI", "BamHI", "HindIII", "BspQI"],
+                default=["BspQI"],
                 format_func=lambda name: f"{name} ({COMMON_RESTRICTION_SITES[name]})",
             )
             sites_dict = {
@@ -199,7 +199,7 @@ class StreamlitApp:
 
         # Optimize button
         if sequences_to_optimize and st.button(
-            "🚀 Optimize", type="primary", use_container_width=True
+            "🚀 Optimize", type="primary", width="stretch"
         ):
             self._run_optimization(
                 sequences_to_optimize, organism_name, strategy, constraints
