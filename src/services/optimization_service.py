@@ -18,6 +18,7 @@ from src.optimization.constraints import (
 from src.optimization.optimizer import CodonOptimizer
 from src.optimization.strategies import (
     HighestFrequencyStrategy,
+    OptimalityBiasedStrategy,
     OptimizationStrategy,
     RandomOptimizationStrategy,
     WeightedRandomStrategy,
@@ -230,6 +231,14 @@ class OptimizationService:
             return HighestFrequencyStrategy()
         elif name == "weighted_random":
             return WeightedRandomStrategy(
+                seed=seed,
+                gc_min=gc_min,
+                gc_max=gc_max,
+                wrscu_min=wrscu_min,
+                wrscu_max=wrscu_max,
+            )
+        elif name == "optimality_biased":
+            return OptimalityBiasedStrategy(
                 seed=seed,
                 gc_min=gc_min,
                 gc_max=gc_max,
