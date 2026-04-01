@@ -6,7 +6,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List
 
+from src.analysis.metrics import CodonMetricsCalculator
 from src.config.constants import COMMON_RESTRICTION_SITES
+from src.config.organisms import CodonUsageTable
 
 
 class OptimizationConstraint(ABC):
