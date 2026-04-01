@@ -189,6 +189,7 @@ class OptimizationService:
                 constraints=constraints,
             )
             result.variant_label = f"Variant {idx} – {config.label}"
+            result.strategy_name = config.strategy_name
             results.append(result)
 
         return results

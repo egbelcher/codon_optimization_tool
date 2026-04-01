@@ -121,3 +121,4 @@ class OptimizationResult:
     metrics_after: Optional[dict] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     variant_label: str = ""
+    strategy_name: str = ""

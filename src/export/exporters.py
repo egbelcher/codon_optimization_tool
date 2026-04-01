@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from typing import Dict, List
 
 from src.models.sequences import OptimizationResult
@@ -143,18 +144,15 @@ class MultiVariantCsvExporter:
             metrics = result.metrics_after or {}
             gc_range = ""
             if result.variant_label:
-                # Extract GC range from variant label if present
-                import re
                 gc_match = re.search(r"GC (\d+%–\d+%)", result.variant_label)
                 if gc_match:
                     gc_range = gc_match.group(1)
 
-            strategy = ""
-            if result.variant_label:
-                if "Highest Frequency" in result.variant_label:
-                    strategy = "Highest Frequency"
-                elif "Weighted Random" in result.variant_label:
-                    strategy = "Weighted Random"
+            strategy_map = {
+                "highest_frequency": "Highest Frequency",
+                "weighted_random": "Weighted Random",
+            }
+            strategy = strategy_map.get(result.strategy_name, result.strategy_name)
 
             gc_content = metrics.get("gc_content")
             gc1 = metrics.get("gc1")
