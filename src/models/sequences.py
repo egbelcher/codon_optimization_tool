@@ -97,6 +97,8 @@ class VariantConfig:
         """Human-readable label describing this variant configuration."""
         if self.strategy_name == "highest_frequency":
             strategy_label = "Highest Frequency"
+        elif self.strategy_name == "optimality_biased":
+            strategy_label = "Optimality-Biased Random"
         elif self.strategy_name == "random_optimization":
             strategy_label = "Random Optimization"
         else:

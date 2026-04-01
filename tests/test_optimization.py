@@ -12,7 +12,7 @@ from src.optimization.constraints import (
     WRSCUConstraint,
 )
 from src.optimization.optimizer import CodonOptimizer
-from src.optimization.strategies import HighestFrequencyStrategy, WeightedRandomStrategy, RandomOptimizationStrategy
+from src.optimization.strategies import HighestFrequencyStrategy, WeightedRandomStrategy, RandomOptimizationStrategy, OptimalityBiasedStrategy
 
 
 @pytest.fixture
@@ -387,6 +387,114 @@ class TestRandomOptimizationStrategy:
         assert r1.sequence == r2.sequence
 
 
+class TestOptimalityBiasedStrategy:
+    """OptimalityBiasedStrategy behaviour."""
+
+    def test_biased_selection_without_constraints(self, ecoli_profile):
+        """Without constraints uses per-codon biased selection (optimize_full_sequence → None)."""
+        strategy = OptimalityBiasedStrategy(seed=0)
+        assert strategy.optimize_full_sequence("MKFLV", ecoli_profile.codon_table) is None
+
+    def test_preserves_amino_acids_without_constraints(self, ecoli_profile):
+        strategy = OptimalityBiasedStrategy(seed=42)
+        optimizer = CodonOptimizer(organism=ecoli_profile, strategy=strategy)
+        protein = "MKFLVDTYWSCRHP"
+        result = optimizer.optimize_from_protein(protein)
+        assert result.translate() == protein
+
+    def test_biased_toward_optimal_codons(self, ecoli_profile):
+        """Optimality-biased should pick top codons more often than weighted random."""
+        protein = "LLLLLLLLLLLLLLLLLLLL"  # 20 leucines – multiple synonymous codons
+        # Collect codons from many seeds for both strategies
+        best_codon = ecoli_profile.codon_table.get_best_codon("L")
+        biased_best_count = 0
+        weighted_best_count = 0
+        trials = 50
+        for seed in range(trials):
+            bopt = CodonOptimizer(
+                organism=ecoli_profile,
+                strategy=OptimalityBiasedStrategy(seed=seed),
+            )
+            wopt = CodonOptimizer(
+                organism=ecoli_profile,
+                strategy=WeightedRandomStrategy(seed=seed),
+            )
+            biased_seq = bopt.optimize_from_protein(protein).get_codons()
+            weighted_seq = wopt.optimize_from_protein(protein).get_codons()
+            biased_best_count += sum(1 for c in biased_seq if c == best_codon)
+            weighted_best_count += sum(1 for c in weighted_seq if c == best_codon)
+        # Biased strategy should select the best codon more frequently
+        assert biased_best_count > weighted_best_count
+
+    def test_with_gc_constraints_produces_sequence_in_range(self, human_profile):
+        """With an achievable GC range the strategy should find a valid sequence."""
+        strategy = OptimalityBiasedStrategy(
+            gc_min=0.40, gc_max=0.65, max_attempts=500
+        )
+        optimizer = CodonOptimizer(organism=human_profile, strategy=strategy)
+        protein = "MKFLVDTYWSCRHPQEINA"
+        result = optimizer.optimize_from_protein(protein)
+        assert result.translate() == protein
+        gc = result.gc_content
+        assert 0.40 <= gc <= 0.65, f"GC {gc:.3f} outside [0.40, 0.65]"
+
+    def test_with_wrscu_constraints_produces_sequence_in_range(self, human_profile):
+        """With an achievable wRSCU range the strategy should find a valid sequence."""
+        from src.analysis.metrics import CodonMetricsCalculator
+        # wRSCU 0.50–0.95 should be achievable for optimality-biased
+        strategy = OptimalityBiasedStrategy(
+            wrscu_min=0.50, wrscu_max=0.95, max_attempts=500
+        )
+        optimizer = CodonOptimizer(organism=human_profile, strategy=strategy)
+        protein = "MKFLVDTYWSCRHPQEINA"
+        result = optimizer.optimize_from_protein(protein)
+        assert result.translate() == protein
+        wrscu = CodonMetricsCalculator.weighted_rscu(
+            result.sequence, human_profile.codon_table
+        )
+        assert 0.50 <= wrscu <= 0.95, f"wRSCU {wrscu:.3f} outside [0.50, 0.95]"
+
+    def test_fallback_best_candidate_with_warning_when_impossible(self, ecoli_profile):
+        """When constraints cannot be satisfied the best candidate + warning are returned."""
+        strategy = OptimalityBiasedStrategy(
+            gc_min=0.99, gc_max=1.0, max_attempts=20
+        )
+        optimizer = CodonOptimizer(organism=ecoli_profile, strategy=strategy)
+        result = optimizer.optimize_from_protein("MKFLV")
+        assert result.translate() == "MKFLV"
+        assert len(strategy.last_warnings) > 0
+        assert "could not satisfy" in strategy.last_warnings[0].lower()
+
+    def test_differs_from_weighted_random(self, ecoli_profile):
+        """Biased selection should differ from weighted-random on average."""
+        protein = "MKFLVDTYWSCRHPQEINALMVG" * 3
+        seeded_weighted = []
+        seeded_biased = []
+        for seed in range(10):
+            wopt = CodonOptimizer(
+                organism=ecoli_profile,
+                strategy=WeightedRandomStrategy(seed=seed),
+            )
+            bopt = CodonOptimizer(
+                organism=ecoli_profile,
+                strategy=OptimalityBiasedStrategy(seed=seed),
+            )
+            seeded_weighted.append(wopt.optimize_from_protein(protein).sequence)
+            seeded_biased.append(bopt.optimize_from_protein(protein).sequence)
+        # At least some sequences should differ between the two strategies
+        assert seeded_weighted != seeded_biased
+
+    def test_seeded_reproducibility(self, ecoli_profile):
+        """Same seed produces the same sequence."""
+        s1 = OptimalityBiasedStrategy(seed=7)
+        s2 = OptimalityBiasedStrategy(seed=7)
+        opt1 = CodonOptimizer(organism=ecoli_profile, strategy=s1)
+        opt2 = CodonOptimizer(organism=ecoli_profile, strategy=s2)
+        r1 = opt1.optimize_from_protein("MKFLVDTY")
+        r2 = opt2.optimize_from_protein("MKFLVDTY")
+        assert r1.sequence == r2.sequence
+
+
 class TestVariantConfigLabelRandomOptimization:
     """VariantConfig.label for the new strategy."""
 
@@ -410,6 +518,31 @@ class TestVariantConfigLabelRandomOptimization:
         )
         assert "Random Optimization" in config.label
         assert "wRSCU 0.50–1.50" in config.label
+
+
+class TestVariantConfigLabelOptimalityBiased:
+    """VariantConfig.label for the optimality-biased strategy."""
+
+    def test_label_optimality_biased(self):
+        from src.models.sequences import VariantConfig
+        config = VariantConfig(strategy_name="optimality_biased")
+        assert config.label == "Optimality-Biased Random"
+
+    def test_label_optimality_biased_with_gc_range(self):
+        from src.models.sequences import VariantConfig
+        config = VariantConfig(
+            strategy_name="optimality_biased", gc_min=0.40, gc_max=0.60
+        )
+        assert "Optimality-Biased Random" in config.label
+        assert "GC 40%–60%" in config.label
+
+    def test_label_optimality_biased_with_wrscu_range(self):
+        from src.models.sequences import VariantConfig
+        config = VariantConfig(
+            strategy_name="optimality_biased", wrscu_min=0.50, wrscu_max=0.95
+        )
+        assert "Optimality-Biased Random" in config.label
+        assert "wRSCU 0.50–0.95" in config.label
 
 
 class TestServiceWithNewStrategies:
@@ -474,4 +607,45 @@ class TestServiceWithNewStrategies:
         assert len(results) == 1
         gc = results[0].optimized_dna.gc_content
         assert 0.35 <= gc <= 0.65, f"GC {gc:.3f} outside expected range"
+
+    def test_optimality_biased_strategy_via_service(self, ecoli_profile):
+        """optimality_biased strategy is reachable through the service."""
+        from src.services.optimization_service import OptimizationService
+        from src.models.sequences import VariantConfig
+        service = OptimizationService()
+        configs = [VariantConfig(strategy_name="optimality_biased")]
+        results = service.optimize_variants(
+            sequence="MKFLVDTY",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        assert results[0].optimized_dna.translate() == "MKFLVDTY"
+        assert "Optimality-Biased Random" in results[0].variant_label
+
+    def test_optimality_biased_with_wrscu_constraint_via_service(self, human_profile):
+        """optimality_biased + wRSCU constraints uses rejection sampling in the service."""
+        from src.services.optimization_service import OptimizationService
+        from src.models.sequences import VariantConfig
+        from src.analysis.metrics import CodonMetricsCalculator
+        service = OptimizationService()
+        configs = [
+            VariantConfig(
+                strategy_name="optimality_biased",
+                wrscu_min=0.50,
+                wrscu_max=0.95,
+            )
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLVDTYWSCRHPQEINA",
+            input_type="protein",
+            organism_name="human",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        wrscu = CodonMetricsCalculator.weighted_rscu(
+            results[0].optimized_dna.sequence, human_profile.codon_table
+        )
+        assert 0.50 <= wrscu <= 0.95, f"wRSCU {wrscu:.3f} outside expected range"
 

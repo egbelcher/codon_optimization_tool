@@ -93,11 +93,22 @@ class StreamlitApp:
 
             strategy = st.sidebar.selectbox(
                 f"Strategy" if num_variants == 1 else f"Strategy (Variant {i})",
-                options=["Highest Frequency", "Weighted Random", "Random Optimization"],
+                options=[
+                    "Highest Frequency",
+                    "Optimality-Biased Random",
+                    "Weighted Random",
+                    "Random Optimization",
+                ],
                 key=f"strategy_{i}",
                 help=(
                     "**Highest Frequency**: Always picks the most-used codon "
                     "(deterministic).\n\n"
+                    "**Optimality-Biased Random**: Like Weighted Random but "
+                    "biased more heavily toward higher-frequency codons. "
+                    "Sits between Highest Frequency and Weighted Random — "
+                    "produces stochastic variation while favouring optimal "
+                    "codons. When a GC Content Range or wRSCU Range is "
+                    "enabled, uses a retry loop to find satisfying sequences.\n\n"
                     "**Weighted Random**: Picks codons weighted by usage frequency "
                     "(stochastic). When a GC Content Range or wRSCU Range is enabled, "
                     "uses a retry loop to find sequences satisfying those constraints.\n\n"
@@ -109,6 +120,7 @@ class StreamlitApp:
             )
             strategy_key = {
                 "Highest Frequency": "highest_frequency",
+                "Optimality-Biased Random": "optimality_biased",
                 "Weighted Random": "weighted_random",
                 "Random Optimization": "random_optimization",
             }.get(strategy, "weighted_random")

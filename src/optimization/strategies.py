@@ -205,6 +205,82 @@ class WeightedRandomStrategy(OptimizationStrategy):
         return seq
 
 
+class OptimalityBiasedStrategy(OptimizationStrategy):
+    """Select codons biased toward higher-frequency codons.
+
+    This strategy sits between :class:`HighestFrequencyStrategy` (deterministic,
+    always picks the top codon) and :class:`WeightedRandomStrategy` (weighted by
+    natural usage frequency).  It raises the usage-frequency weights to an
+    exponent (default **2.0**), concentrating probability mass on preferred
+    codons while still allowing stochastic variation.
+
+    When *gc_min*/*gc_max* or *wrscu_min*/*wrscu_max* constraints are supplied,
+    a rejection-sampling loop is used to find a sequence that satisfies them.
+    If no satisfying sequence is found within *max_attempts*, the best candidate
+    is returned and a warning is stored in :attr:`last_warnings`.
+    When no constraints are given the strategy falls back to per-codon biased
+    selection.
+    """
+
+    def __init__(
+        self,
+        seed: int | None = None,
+        gc_min: float | None = None,
+        gc_max: float | None = None,
+        wrscu_min: float | None = None,
+        wrscu_max: float | None = None,
+        max_attempts: int = 1000,
+        bias_strength: float = 2.0,
+    ) -> None:
+        self._rng = random.Random(seed)
+        self.gc_min = gc_min
+        self.gc_max = gc_max
+        self.wrscu_min = wrscu_min
+        self.wrscu_max = wrscu_max
+        self.max_attempts = max_attempts
+        self.bias_strength = bias_strength
+        self.last_warnings: List[str] = []
+
+    def select_codon(
+        self, amino_acid: str, codon_table: CodonUsageTable
+    ) -> str:
+        codon_freqs = codon_table.get_codons_for_amino_acid(amino_acid)
+        if not codon_freqs:
+            raise ValueError(f"No codons available for amino acid: {amino_acid}")
+        codons = list(codon_freqs.keys())
+        weights = [w ** self.bias_strength for w in codon_freqs.values()]
+        # Handle case where all weights are zero
+        if sum(weights) == 0:
+            return self._rng.choice(codons)
+        return self._rng.choices(codons, weights=weights, k=1)[0]
+
+    def name(self) -> str:
+        return "Optimality-Biased Random"
+
+    def optimize_full_sequence(
+        self, protein: str, codon_table: CodonUsageTable
+    ) -> str | None:
+        """Use rejection sampling when constraints are set; otherwise return None."""
+        has_gc = self.gc_min is not None and self.gc_max is not None
+        has_wrscu = self.wrscu_min is not None and self.wrscu_max is not None
+        if not has_gc and not has_wrscu:
+            return None  # fall back to per-codon biased selection
+
+        seq, self.last_warnings = _rejection_sample(
+            lambda seed: OptimalityBiasedStrategy(
+                seed=seed, bias_strength=self.bias_strength
+            ),
+            protein,
+            codon_table,
+            self.gc_min,
+            self.gc_max,
+            self.wrscu_min,
+            self.wrscu_max,
+            self.max_attempts,
+        )
+        return seq
+
+
 class RandomOptimizationStrategy(OptimizationStrategy):
     """Select codons uniformly at random (equal weight per synonymous codon).
 
@@ -275,5 +351,6 @@ class RandomOptimizationStrategy(OptimizationStrategy):
 STRATEGY_REGISTRY: Dict[str, type] = {
     "highest_frequency": HighestFrequencyStrategy,
     "weighted_random": WeightedRandomStrategy,
+    "optimality_biased": OptimalityBiasedStrategy,
     "random_optimization": RandomOptimizationStrategy,
 }
